@@ -62,6 +62,22 @@ static int read_tasks(FILE *fp, int *total_time, Task **tasks_out, int *n_tasks_
     return 0;
 }
 
+static int choose_next(const char *algo, Task *tasks, RuntimeState *rt, int n_tasks) {
+    int best = -1;
+    for (int i = 0; i < n_tasks; i++) {
+        if (rt[i].remaining <= 0) continue;
+        if (best == -1) { best = i; continue; }
+        int i_wins;
+        if (strcmp(algo, "rate") == 0) {
+            i_wins = tasks[i].period < tasks[best].period;
+        } else {
+            i_wins = rt[i].abs_deadline < rt[best].abs_deadline;
+        }
+        if (i_wins) best = i;
+    }
+    return best;
+}
+
 int main(int argc, char *argv[]) {
     if (argc != 3) {
         fprintf(stderr, "uso: %s <rate|edf> <arquivo_entrada>\n", argv[0]);
@@ -72,6 +88,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "erro: algoritmo invalido '%s'. use 'rate' ou 'edf'\n", argv[1]);
         return 1;
     }
+    const char *algo = argv[1];
 
     FILE *fp = fopen(argv[2], "r");
     if (fp == NULL) {
@@ -93,6 +110,50 @@ int main(int argc, char *argv[]) {
         rt[i].remaining = 0;
         rt[i].next_arrival = 0;
         rt[i].abs_deadline = 0;
+    }
+
+    // DEBUG TEMPORARIO
+    int current_task = -1;
+    int run_start = 0;
+
+    for (int t = 0; t < total_time; t++) {
+        for (int i = 0; i < n_tasks; i++) {
+            if (t == rt[i].next_arrival) {
+                rt[i].remaining = tasks[i].burst;
+                rt[i].abs_deadline = t + tasks[i].deadline;
+                rt[i].next_arrival += tasks[i].period;
+            }
+        }
+
+        int choice = choose_next(algo, tasks, rt, n_tasks);
+
+        if (choice != current_task) {
+            int length = t - run_start;
+            if (length > 0) {
+                if (current_task == -1) {
+                    printf("idle for %d units\n", length);
+                } else {
+                    char reason = (rt[current_task].remaining == 0) ? 'F' : 'H';
+                    printf("[%s] for %d units - %c\n", tasks[current_task].name, length, reason);
+                }
+            }
+            current_task = choice;
+            run_start = t;
+        }
+
+        if (choice != -1) {
+            rt[choice].remaining--;
+        }
+    }
+
+    int length = total_time - run_start;
+    if (length > 0) {
+        if (current_task == -1) {
+            printf("idle for %d units\n", length);
+        } else {
+            char reason = (rt[current_task].remaining == 0) ? 'F' : 'H';
+            printf("[%s] for %d units - %c\n", tasks[current_task].name, length, reason);
+        }
     }
 
     free(rt);
