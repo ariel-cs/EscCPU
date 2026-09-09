@@ -63,13 +63,13 @@ static int read_tasks(FILE *fp, int *total_time, Task **tasks_out, int *n_tasks_
     return 0;
 }
 
-static int choose_next(const char *algo, Task *tasks, RuntimeState *rt, int n_tasks) {
+static int choose_next(int is_rate, const Task *tasks, const RuntimeState *rt, int n_tasks) {
     int best = -1;
     for (int i = 0; i < n_tasks; i++) {
         if (rt[i].remaining <= 0) continue;
         if (best == -1) { best = i; continue; }
         int i_wins;
-        if (strcmp(algo, "rate") == 0) {
+        if (is_rate) {
             i_wins = tasks[i].period < tasks[best].period;
         } else {
             i_wins = rt[i].abs_deadline < rt[best].abs_deadline;
@@ -90,6 +90,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     const char *algo = argv[1];
+    const int is_rate = (strcmp(algo, "rate") == 0);
 
     FILE *fp = fopen(argv[2], "r");
     if (fp == NULL) {
@@ -105,19 +106,14 @@ int main(int argc, char *argv[]) {
     }
     fclose(fp);
 
-    RuntimeState *rt = malloc(n_tasks * sizeof(RuntimeState));
+    RuntimeState *rt = calloc(n_tasks, sizeof(RuntimeState));
     int *lost_count = calloc(n_tasks, sizeof(int));
     int *complete_count = calloc(n_tasks, sizeof(int));
-    int *killed_count = calloc(n_tasks, sizeof(int));
-    if (!rt || !lost_count || !complete_count || !killed_count) {
+    int *killed = calloc(n_tasks, sizeof(int));
+    if (!rt || !lost_count || !complete_count || !killed) {
         fprintf(stderr, "Falha de alocacao [ERRO]\n");
-        free(tasks); free(rt); free(lost_count); free(complete_count); free(killed_count);
+        free(tasks); free(rt); free(lost_count); free(complete_count); free(killed);
         return 1;
-    }
-    for (int i = 0; i < n_tasks; i++) {
-        rt[i].remaining = 0;
-        rt[i].next_arrival = 0;
-        rt[i].abs_deadline = 0;
     }
 
     char *out_buf = NULL;
@@ -125,11 +121,11 @@ int main(int argc, char *argv[]) {
     FILE *mem = open_memstream(&out_buf, &out_size);
     if (!mem) {
         fprintf(stderr, "Falha ao alocar buffer de saida [ERRO]\n");
-        free(tasks); free(rt); free(lost_count); free(complete_count); free(killed_count);
+        free(tasks); free(rt); free(lost_count); free(complete_count); free(killed);
         return 1;
     }
 
-    fprintf(mem, "EXECUTION BY %s\n", strcmp(algo, "rate") == 0 ? "RATE" : "EDF");
+    fprintf(mem, "EXECUTION BY %s\n", is_rate ? "RATE" : "EDF");
 
     int current_task = -1;
     int run_start = 0;
@@ -152,8 +148,7 @@ int main(int argc, char *argv[]) {
                 rt[i].next_arrival += tasks[i].period;
             }
         }
-
-        int choice = choose_next(algo, tasks, rt, n_tasks);
+        int choice = choose_next(is_rate, tasks, rt, n_tasks);
 
         if (choice != current_task) {
             int length = t - run_start;
@@ -200,7 +195,7 @@ int main(int argc, char *argv[]) {
 
     for (int i = 0; i < n_tasks; i++) {
         if (rt[i].remaining > 0) {
-            killed_count[i] = 1;
+            killed[i] = 1;
         }
     }
 
@@ -216,7 +211,7 @@ int main(int argc, char *argv[]) {
 
     fprintf(mem, "\nKILLED\n");
     for (int i = 0; i < n_tasks; i++) {
-        fprintf(mem, "[%s] %d\n", tasks[i].name, killed_count[i]);
+        fprintf(mem, "[%s] %d\n", tasks[i].name, killed[i]);
     }
 
     fclose(mem);
@@ -227,7 +222,7 @@ int main(int argc, char *argv[]) {
     if (!out) {
         fprintf(stderr, "Nao foi possivel criar o arquivo de saida '%s' [ERRO]\n", outname);
         free(out_buf); free(tasks); free(rt);
-        free(lost_count); free(complete_count); free(killed_count);
+        free(lost_count); free(complete_count); free(killed);
         return 1;
     }
     fwrite(out_buf, 1, out_size, out);
@@ -238,6 +233,6 @@ int main(int argc, char *argv[]) {
     free(tasks);
     free(lost_count);
     free(complete_count);
-    free(killed_count);
+    free(killed);
     return 0;
 }
