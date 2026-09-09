@@ -11,6 +11,12 @@ typedef struct {
     int burst;
 } Task;
 
+typedef struct {
+    int remaining;
+    int next_arrival;
+    int abs_deadline;
+} RuntimeState;
+
 static int read_tasks(FILE *fp, int *total_time, Task **tasks_out, int *n_tasks_out) {
     if (fscanf(fp, "%d", total_time) != 1 || *total_time <= 0) {
         fprintf(stderr, "erro: tempo total de simulacao invalido\n");
@@ -79,8 +85,17 @@ int main(int argc, char *argv[]) {
         fclose(fp);
         return 1;
     }
-
     fclose(fp);
+
+    RuntimeState *rt = malloc(n_tasks * sizeof(RuntimeState));
+    if (!rt) { fprintf(stderr, "erro: falha de alocacao\n"); free(tasks); return 1; }
+    for (int i = 0; i < n_tasks; i++) {
+        rt[i].remaining = 0;
+        rt[i].next_arrival = 0;
+        rt[i].abs_deadline = 0;
+    }
+
+    free(rt);
     free(tasks);
     return 0;
 }
